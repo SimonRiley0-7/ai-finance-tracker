@@ -16,7 +16,7 @@ export async function createTransaction(data) {
         if (!userId) throw new Error("Unauthorized");
 
         const req = await request();
-        const decision = await aj.project(req,{
+        const decision = await aj.protect(req,{
             userId,
             requested: 1,
         })
