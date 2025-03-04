@@ -47,7 +47,7 @@ export async function seedTransactions() {
     const transactions = [];
     let totalBalance = 0;
 
-    for (let i = 90; i >= 0; i--) {
+    for (let i = 100; i >= 0; i--) {
       const date = subDays(new Date(), i);
 
       // Generate 1-3 transactions per day
