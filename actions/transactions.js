@@ -5,6 +5,7 @@ import { db } from "@/lib/prisma";
 import { request } from "@arcjet/next";
 import aj from "@/lib/arcjet";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { parse } from "date-fns";
 const genAi = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const serializeAmount = (obj) => ({
     ...obj,
@@ -103,11 +104,141 @@ function calculateNextRecurringDate(startDate, interval){
 
 export async function ScanReceipt(file) {
     try {
-        const model = genAi.getGenerativeModel({ model: 'gemini-2.0-flash '})
+        const model = genAi.getGenerativeModel({ model: 'gemini-2.0-flash'})
         const arrayBuffer = await file.arrayBuffer();
         const base64String = Buffer.from(arrayBuffer).toString('base64');
+        const prompt = `
+      Analyze this receipt image and extract the following information in JSON format:
+      - Total amount (just the number)
+      - Date (in ISO format)
+      - Description or items purchased (brief summary)
+      - Merchant/store name
+      - Suggested category (one of: housing,transportation,groceries,utilities,entertainment,food,shopping,healthcare,education,personal,travel,insurance,gifts,bills,other-expense )
+      
+      Only respond with valid JSON in this exact format:
+      {
+        "amount": number,
+        "date": "ISO date string",
+        "description": "string",
+        "merchantName": "string",
+        "category": "string"
+      }
+
+      If its not a recipt, return an empty object
+    `;
+        const result = await model.generateContent([
+            {
+                inlineData: {
+                    data: base64String,
+                    mimeType: file.type,
+                },
+            },
+            prompt,
+        ])
+        const response = await result.response;
+        const text = response.text();
+        const cleanedText = text.replace(/```(?:json)?\n?/g,"").trim();
+        try {
+            const data = JSON.parse(cleanedText);
+            return {
+                amount:parseFloat(data.amount),
+                date:new Date(data.date),
+                description: data.description,
+                category:data.category,
+                merchantName: data.merchantName
+            }
+        } 
+        catch (parseError) {
+            console.error("Error parsing JSON response:",parseError);
+            throw new Error("Invalid response format from Gemini")
+        }
     }
     catch (error) {
-        
+        console.error("Error scanning receipt:",error.message);
+        throw new Error("Failed to scan receipt");
+    }
+}
+
+export async function getTransaction(id) {
+    const { userId } = await auth();
+    if (!userId) throw new Error("Unauthorized");
+
+    const user = await db.user.findUnique({
+    where: { clerkUserId: userId },
+    });
+
+    if (!user) {
+    throw new Error("User not found");
+    }
+
+    const transaction = await db.transaction.findUnique({
+        where: {
+            id, 
+            userId: user.id
+        }
+    })
+
+    if(!transaction) throw new Error("Transaction not Found");
+    return serializeAmount(transaction);
+}
+
+export async function udpateTransaction(id, data) {
+    try{
+        const { userId } = await auth();
+        if (!userId) throw new Error("Unauthorized");
+
+        const user = await db.user.findUnique({
+        where: { clerkUserId: userId },
+        });
+
+        if (!user) {
+        throw new Error("User not found");
+        }
+
+        const originalTransaction = await db.transaction.findUnique({
+            where: {
+                id,
+                userId: user.id
+            },
+            include: {
+                account:true
+            },
+        })
+
+        if(!originalTransaction) throw new Error("Transaction Not Found");
+
+        const oldBalanceChange = originalTransaction.type === 'EXPENSE' ? -originalTransaction.amount.toNumber() : originalTransaction.amount.toNumber();
+        const newBalanceChange = data.type === 'EXPENSE' ? -data.amount : data.amount;
+        const netBalanceChange = newBalanceChange - oldBalanceChange;
+
+        const transaction = await db.$transaction(async (tx)=> {
+            const updated = await tx.transaction.update({
+                where: {
+                    id,
+                    userId: user.id
+                },
+                data: {
+                    ...data,
+                    nextRecurringDate: data.isRecurring && data.recurringInterval ? calculateNextRecurringDate(data.date, data.recurringInterval) : null,
+                },
+            });
+            await tx.account.update({
+                where: {
+                    id: data.accountId
+                },
+                data: {
+                    balance: {
+                        increment: netBalanceChange
+                    }
+                }
+            })
+            return updated;
+        })
+        revalidatePath("/dashboard");
+        revalidatePath(`/account/${data.accountId}`);
+        return { success: true, data: serializeAmount(transaction) };
+    }
+    catch (error) {
+        throw new Error(error.message);
     }
 }
