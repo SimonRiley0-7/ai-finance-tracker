@@ -23,10 +23,10 @@ const Header = async () => {
               Features
             </a>
             <a
-              href="#testimonials"
+              href="#howitworks"
               className="text-gray-600 hover:text-blue-600"
             >
-              Testimonials
+              How it Works
             </a>
           </SignedOut>
         </div>
