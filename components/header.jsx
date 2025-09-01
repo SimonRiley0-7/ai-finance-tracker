@@ -22,10 +22,7 @@ const Header = async () => {
             <a href="#features" className="text-gray-600 hover:text-blue-600">
               Features
             </a>
-            <a
-              href="#howitworks"
-              className="text-gray-600 hover:text-blue-600"
-            >
+            <a href="#howitworks" className="text-gray-600 hover:text-blue-600">
               How it Works
             </a>
           </SignedOut>
@@ -46,7 +43,7 @@ const Header = async () => {
             <a href="/transaction/create">
               <Button className="flex items-center gap-2">
                 <PenBox size={18} />
-                <span className="hidden md:inline">Add Transaction</span>
+                <span className="hidden md:inline">Add A Transaction</span>
               </Button>
             </a>
           </SignedIn>
